@@ -1,0 +1,52 @@
+{
+  "node": "patient_account",
+  "radius": "los",
+  "colorBy": "drg",
+  "colorByScript":"if(d.drg =='870'){ return 'red'} else { return 'black'}",
+  "viewBy": [
+    {
+      "name": "age_group"
+    },
+    {
+      "name": "severity"
+    },
+    {
+      "name":"drg"
+    }
+  ],
+  "tooltips": {
+    "enable": true,
+    "border": {
+      "enable": false,
+      "color": "#000"
+    },
+    "fields": [
+      {
+        "name": "patient_account",
+        "displayName": "A/C No"
+      },
+      {
+        "name": "drg",
+        "displayName": "DRG"
+      },
+      {
+        "name": "admission_date",
+        "displayName": "Admission Date"
+      },
+      {
+        "name": "age_group",
+        "displayName": "Age Group"
+      },
+      {
+        "name": "discharge_group",
+        "displayName": "Discharge Group"
+      }
+    ],
+    "font": {
+      "font_family": "Times New Roman",
+      "color": "red",
+      "size": "20px"
+    },
+    "background": "gray"
+  }
+}

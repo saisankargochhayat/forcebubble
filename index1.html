@@ -1,0 +1,459 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>delimited | Force Bubble Charts in D3</title>
+    <link rel="shortcut icon" href="../common/delimited-favicon-v4.ico">
+    <link href="http://projects.delimited.io/experiments/force-bubbles/css/bootstrap.css" rel="stylesheet">
+    <style type="text/css">
+      body {
+        background-color: white;
+        padding-left: 50px;
+      }
+      circle {
+        stroke: black;
+        stroke-width: .1px;
+        opacity: .8;
+      }
+      .btn-group {
+        margin-left: 330px;
+      }
+      .label {
+        fill: black;
+        font-size: 20px;
+      }
+      .d3-tip {
+        line-height: 1;
+        font-weight: bold;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        border-radius: 2px;
+}
+
+
+
+    </style>
+
+  </head>
+  <body>
+    <div id="option">
+
+
+
+
+    </div>
+
+    <div id="chart"></div>
+    <script src="http://projects.delimited.io/experiments/force-bubbles/lib/d3.js"></script>
+    <script src="http://projects.delimited.io/experiments/force-bubbles/lib/jquery.js"></script>
+    <script src="http://projects.delimited.io/experiments/force-bubbles/lib/underscore.js"></script>
+    <script src="http://labratrevenge.com/d3-tip/javascripts/d3.tip.v0.6.3.js"></script>
+    <script>
+      d3.json('BubbleChartConfigurationFile.json', function (error1, config) {
+      d3.json('SampleData1.json', function (error, data) {
+
+        var width = 850, height =515 ;
+        var fill = d3.scale.ordinal().domain(["Deceased","Home","Home w Home Health","Hospice","Long Term Acute Care","Skilled Nursing Facility"])
+        .range(['#FF0000','#008000','#4ef94e','#cee700','#f9a403','#11eee8'])
+        var svg = d3.select("#chart").append("svg")
+            .attr("width", width)
+            .attr("height", height);
+        var radiusConfig=config.radius;
+        var radiusScale=d3.scale.linear()
+                        .domain([d3.min(_.pluck(data, radiusConfig)),d3.max(_.pluck(data, radiusConfig))])
+                        .range([5,20]);
+
+
+        for (var j = 0; j < data.length; j++) {
+          data[j].radius = radiusScale(data[j][radiusConfig]);
+          data[j].x = Math.random() * width;
+          data[j].y = Math.random() * height;
+        }
+        var viewBy = config["viewBy"];
+                var strHtml = '';
+                for (var key in viewBy) {
+                    var btn = viewBy[key];
+                    var buttonName="By " + btn.name.replace("_"," ");
+                    strHtml += '<input type = "button" class="btn" id = "'+btn.name+'" value = "'+buttonName+'"/>';
+                                    }
+                $(strHtml).appendTo("#option");
+
+        var padding = 2;
+        var maxRadius = d3.max(_.pluck(data, 'radius'));
+
+        var getCenters = function (vname, size) {
+          var centers, map;
+          //uniq ensures each element is present only once
+          //pluck strings similar data like los into a array.
+          centers = _.uniq(_.pluck(data, vname)).map(function (d) {
+            var val = _.pluck(data)
+            return {name: d, value: 1};
+          });
+
+          /*a treemap recursively subdivides area into rectangles.d3.layout.treemap()
+
+          Creates a new treemap layout with the default settings: the default sort order is by descending value; the default value accessor assumes each input data is an object with a numeric value attribute; the default children accessor assumes each input data is an object with a children array; the default size is 1×1.*/
+          map = d3.layout.treemap().size(size).ratio(1/1);
+          map.nodes({children: centers});
+
+          return centers;
+        };
+
+
+   var tip = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html(function(d) {
+                        var display = "" +config.tooltips.fields[0].displayName+ ": " +d[config.tooltips.fields[0].name];
+                        for (var i = 1; i < config.tooltips.fields.length; i++) {
+                            display = display + "</br>" +config.tooltips.fields[i].displayName+ ": " +d[config.tooltips.fields[i].name];
+                        }
+                        return display;
+                    })
+
+                tip.style({'background': ""+config.tooltips.background+"", 'font-family': ""+config.tooltips.font.font_family+"",
+                    'font-size': ""+config.tooltips.font.size+"",
+                    'color': ""+config.tooltips.font.color+""
+                    });
+      svg.call(tip);
+        var nodes = svg.selectAll("circle")
+          .data(data);
+
+        nodes.enter().append("circle")
+          .attr("class", "node")
+          .attr("cx", function (d) { return d.x; })
+          .attr("cy", function (d) { return d.y; })
+          .attr("r", function (d) { return d.radius; })
+          .style("fill", function (d) { return fill(d.discharge_group); })
+          .on("mouseover",function(d){
+            if(config.tooltips.border.enable)
+            {
+              tip.style({
+                'border-style':'solid',
+                'border-color':""+config.tooltips.border.color+""
+              });
+
+            }
+            if(config.tooltips.enable)
+              { console.log(config.tooltips.enable);
+              return(tip.show(d)) ;
+            }
+          })
+          .on("mouseout", tip.hide)
+
+
+        var force = d3.layout.force();
+
+        draw('drg');
+
+        $( ".btn" ).click(function() {
+          draw(this.id);
+        });
+
+
+
+
+        function draw (varname) {
+          var centers = getCenters(varname, [width, height]);
+          force.charge(function(d)
+          {
+            return -Math.pow(d.radius,2.0)/8;
+
+          }).gravity(-.01).friction(.9)
+          force.on("tick", tick(centers, varname));
+          force.on("start",start);
+          labels(centers)
+          force.start();
+        }
+        var damper =0.4;
+        function tick (centers, varname) {
+          var foci = {};
+          for (var i = 0; i < centers.length; i++) {
+            foci[centers[i].name] = centers[i];
+          }
+          return function (e) {
+            for (var i = 0; i < data.length; i++) {
+              var o = data[i];
+              var f = foci[o[varname]];
+              o.y += ((f.y + (f.dy / 2)) - o.y) *  (e.alpha);
+              o.x += ((f.x + (f.dx / 2)) - o.x) *  (e.alpha);
+            }
+            nodes.each(collide(.2))
+              .attr("cx", function (d) { return d.x; })
+              .attr("cy", function (d) { return d.y; });
+          }
+        }
+      function start() {
+                    var ticksPerRender = 8;
+                    requestAnimationFrame(function render() {
+                        for (var i = 0; i < ticksPerRender; i++) {
+                            force.tick();
+                        }
+
+                        if (force.alpha() > 0) {
+                            requestAnimationFrame(render);
+                        }
+                    })
+                }
+
+        function labels (centers) {
+          svg.selectAll(".label").remove();
+
+          svg.selectAll(".label")
+          .data(centers).enter().append("text")
+          .attr("class", "label")
+          .text(function (d) { return d.name })
+          .attr("transform", function (d) {
+            return "translate(" + (d.x + (d.dx / 2)) + ", " + (d.y + 20) + ")";
+          });
+        }
+
+
+
+
+
+      /*function removePopovers () {
+          $('.popover').each(function() {
+            $(this).remove();
+          });
+        }
+
+        function showPopover (d) {
+          $(this).popover({
+            placement: 'auto top',
+            container: 'body',
+            trigger: 'manual',
+            html : true,
+            content: function() {
+              return "A/C No.: " + d.patient_account + "<br/>DRG: " + d.drg +
+                     "<br/>Admission date: " + d.admission_date + "<br/>LOS: " + d.los +"<br/>Discharge group"+ d.discharge_group;
+            }
+          });
+          $(this).popover('show')
+        }*/
+
+        function collide(alpha) {
+          var quadtree = d3.geom.quadtree(data);
+          return function (d) {
+            var r = d.radius + maxRadius + padding,
+                nx1 = d.x - r,
+                nx2 = d.x + r,
+                ny1 = d.y - r,
+                ny2 = d.y + r;
+            quadtree.visit(function(quad, x1, y1, x2, y2) {
+              if (quad.point && (quad.point !== d)) {
+                var x =<!DOCTYPE html>
+<html lang = "en">
+    <head>
+        <meta charset = "utf-8">
+        <title>Force Bubble</title>
+        <script type = "text/javascript" src = "http://mbostock.github.com/d3/d3.js"></script>
+        <script type = "text/javascript" src = "http://projects.delimited.io/experiments/force-bubbles/lib/underscore.js"></script>
+        <script type = "text/javascript" src = "http://labratrevenge.com/d3-tip/javascripts/d3.tip.v0.6.3.js"></script>
+        <script type = "text/javascript" src = "http://projects.delimited.io/experiments/force-bubbles/lib/jquery.js"></script>
+        <link type = "text/css" rel = "stylesheet" href = "stylesheet.css"/>
+    </head>
+    <body>
+        <div id="option">
+        </div>
+        <div id="chart"></div>
+        <script>
+          d3.json("BubbleChartConfigurationFile.json", function(config) {
+            d3.json("SampleData1.json", function (data) {
+
+                var width = 850, height = 515;
+                var fill = d3.scale.ordinal()
+                    .domain(["Deceased", "Home", "Home w Home Health", "Hospice", "Long Term Acute Care", "Skilled Nursing Facility"])
+                    .range(['#FF0000','#008000','#4ef94e','#cee700','#f9a403','#11eeed'])
+                var svg = d3.select("#chart").append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+                var radiusConfig = config.radius;
+                var radiusScale = d3.scale.linear()
+                    .domain([d3.min(_.pluck(data, radiusConfig)),d3.max(_.pluck(data, radiusConfig))])
+                    .range([5,20]);
+                for (var j = 0; j < data.length; j++) {
+                    data[j].radius = radiusScale(data[j][radiusConfig]);
+                    data[j].Overall = "Overall";
+                    data[j].x = Math.random() * width;
+                    data[j].y = Math.random() * height;
+                }
+
+                var viewBy = config["viewBy"];
+                var strHtml = '<input type = "button" class = "button" id = "Overall" value = "Overall"/>';
+                for (var key in viewBy) {
+                    var btn = viewBy[key];
+                    var buttonName = "By " + btn.name.replace("_"," ");
+                    strHtml += '<input type = "button" class = "button" id = "'+btn.name+'" value = "'+buttonName+'"/>';
+                }
+                $(strHtml).appendTo("#option");
+
+                var padding = 2;
+                var maxRadius = d3.max(_.pluck(data, 'radius'));
+
+                var getCentres = function (vname, size) {
+                    var centres, treeMap;
+                    treeMap = d3.layout.treemap().size(size).ratio(1/1);
+                    centres = _.uniq(_.pluck(data, vname)).map(function (d) {
+                        return {name: d, value: 1};
+                    });
+                    if ((centres.length) % 3 != 0) {
+                        var ind = 0;
+                        for (var i = 1; i <= (centres.length % 3); i++) {
+                            centres.splice(ind, 0, {name: "", value: 1});
+                            ind = ind + 2;
+                        }
+                    }
+                    treeMap.nodes({children: centres});
+                    return centres;
+                };
+
+                var tip = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html(function(d) {
+                        var display = "" +config.tooltips.fields[0].displayName+ ": " +d[config.tooltips.fields[0].name];
+                        for (var i = 1; i < config.tooltips.fields.length; i++) {
+                            display = display + "</br>" +config.tooltips.fields[i].displayName+ ": " +d[config.tooltips.fields[i].name];
+                        }
+                        return display;
+                    })
+
+                tip.style({'background': ""+config.tooltips.background+"", 'font-family': ""+config.tooltips.font.font_family+"",
+                    'font-size': ""+config.tooltips.font.size+"",
+                    'color': ""+config.tooltips.font.color+""
+                    });
+
+                svg.call(tip);
+
+                var nodes = svg.selectAll("circle")
+                    .data(data);
+
+                nodes.enter().append("circle")
+                    .attr("class", "node")
+                    .attr("cx", function (d) { return d.x; })
+                    .attr("cy", function (d) { return d.y; })
+                    .attr("r", function (d) { return d.radius; })
+                    .style("fill", function (d) { return fill(d.discharge_group); })
+                    .on("mouseover", function(d) {
+                        d3.select(this).style({'stroke-width':"3px"});
+                        if (config.tooltips.border.enable) {
+                            tip.style({'border-style': "solid", 'border-color': ""+config.tooltips.border.color+""});
+                        }
+                        if (config.tooltips.enable) {
+                            return tip.show(d);
+                        }
+                    })
+                    .on("mouseout", function(d) {
+                        d3.select(this).style({'stroke-width':"0.01px"});
+                        return tip.hide(d);
+                    });
+
+                var force = d3.layout.force();
+
+                force.tick()
+
+                draw('val');
+
+                $(".button").click(function() {
+                    draw(this.id);
+                });
+
+                function draw (varname) {
+                    var centres = getCentres(varname, [width, height]);
+                    force.charge(0)
+                        .friction(0.9)
+                        .gravity(0);
+                    force.on("tick", tick(centres, varname));
+                    force.on("start",start);
+                    //force.on("start", requestAnimationFrame)
+                    labels(centres);
+                    force.start();
+                }
+
+                /*var ticksPerRender = 3;
+
+                requestAnimationFrame(function render() {
+                    for (var i = 0; i < ticksPerRender; i++) {
+                        force.tick();
+                    }
+                    if (force.alpha() > 0) {
+                        requestAnimationFrame(render);
+                    }
+                });*/
+
+                function tick (centres, varname) {
+                    var foci = {};
+                    for (var i = 0; i < centres.length; i++) {
+                        foci[centres[i].name] = centres[i];
+                    }
+                    return function (e) {
+                        for (var i = 0; i < data.length; i++) {
+                            var o = data[i];
+                            var f = foci[o[varname]];
+                            o.y += ((f.y + (f.dy / 2)) - o.y) * (e.alpha);
+                            o.x += ((f.x + (f.dx / 2)) - o.x) * (e.alpha);
+                        }
+                        nodes.each(collide(0.2))
+                            .attr("cx", function (d) { return d.x; })
+                            .attr("cy", function (d) { return d.y; });
+                    }
+                }
+                function start() {
+                var ticksPerRender = 8;
+                requestAnimationFrame(function render() {
+                    for (var i = 0; i < ticksPerRender; i++) {
+                        force.tick();
+                    }
+
+                    if (force.alpha() > .1) {
+                        requestAnimationFrame(render);
+                    }
+                })
+            }
+
+                function labels (centres) {
+                    svg.selectAll(".label").remove();
+                    svg.selectAll(".label")
+                        .data(centres).enter().append("text")
+                        .attr("class", "label")
+                        .text(function (d) { return d.name })
+                        .attr("transform", function (d) {
+                            return "translate(" + (d.x + (d.dx / 2)) + ", " + (d.y + 30) + ")";
+                        });
+                }
+
+                function collide(alpha) {
+                    var quadtree = d3.geom.quadtree(data);
+                    return function (d) {
+                        var r = d.radius + maxRadius + (padding),
+                            nx1 = d.x - r,
+                            nx2 = d.x + r,
+                            ny1 = d.y - r,
+                            ny2 = d.y + r;
+                        quadtree.visit(function(quad, x1, y1, x2, y2) {
+                            if (quad.point && (quad.point !== d)) {
+                                var x = d.x - quad.point.x,
+                                    y = d.y - quad.point.y,
+                                    l = Math.sqrt(x * x + y * y),
+                                    r = d.radius + quad.point.radius + (padding);
+                                if (l < r) {
+                                    l = (l - r) / l * (alpha);
+                                    d.x -= x *= (l);
+                                    d.y -= y *= (l);
+                                    quad.point.x += x;
+                                    quad.point.y += y;
+                                }
+                            }
+                            return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+                        });
+                    };
+                }
+            });
+          })
+        </script>
+    </body>
+</html>
